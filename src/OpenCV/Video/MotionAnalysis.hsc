@@ -72,6 +72,21 @@ class BackgroundSubtractor a where
         -> m (Mat ('S [h, w]) channels depth)
            -- ^ The output background image.
 
+{- |
+
+Example:
+
+@
+animation :: Animation (ShapeT [100, 100]) ('S 3) ('S Word8)
+animation = []
+
+animationIO :: IO (Animation (ShapeT [100, 100]) ('S 3) ('S Word8))
+animationIO = pure []
+@
+
+<<doc/generated/examples/animation.gif animation>>
+<<doc/generated/examples/animationIO.gif animationIO>>
+-}
 
 --------------------------------------------------------------------------------
 -- Background subtractors

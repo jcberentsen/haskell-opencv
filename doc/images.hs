@@ -32,7 +32,7 @@ import qualified "text" Data.Text as T
 import qualified "vector" Data.Vector as V
 import "transformers" Control.Monad.Trans.Class ( lift )
 
-import "this" ExampleExtractor ( render, extractExampleImages )
+import "this" ExampleExtractor
 
 --------------------------------------------------------------------------------
 
@@ -221,14 +221,14 @@ extractExampleImages "src"
 main :: IO ()
 main = do
     renderExampleImages
-    render "birds_512x341.png"    birds_512x341
-    render "flower_512x341.png"   flower_512x341
-    render "sailboat_512x341.png" sailboat_512x341
-    render "bikes_512x341.png"    bikes_512x341
+    renderImage "birds_512x341.png"    birds_512x341
+    renderImage "flower_512x341.png"   flower_512x341
+    renderImage "sailboat_512x341.png" sailboat_512x341
+    renderImage "bikes_512x341.png"    bikes_512x341
     forM_ [minBound .. maxBound] $ \lineType ->
-      render (show lineType <> ".png") (lineTypeImg lineType)
+      renderImage (show lineType <> ".png") (lineTypeImg lineType)
     forM_ [minBound .. maxBound] $ \fontFace -> do
-      render (show fontFace <> ".png")         (fontImg $ Font fontFace NotSlanted 1)
-      render (show fontFace <> "_slanted.png") (fontImg $ Font fontFace Slanted    1)
+      renderImage (show fontFace <> ".png")         (fontImg $ Font fontFace NotSlanted 1)
+      renderImage (show fontFace <> "_slanted.png") (fontImg $ Font fontFace Slanted    1)
 
 --------------------------------------------------------------------------------

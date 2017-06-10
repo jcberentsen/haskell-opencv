@@ -1,7 +1,14 @@
 {-# language QuasiQuotes #-}
 {-# language TemplateHaskell #-}
 
-module ExampleExtractor ( render, extractExampleImages ) where
+module ExampleExtractor
+  ( Animation
+
+  , renderImage
+  , renderAnimation
+
+  , extractExampleImages
+  ) where
 
 import "base" Control.Arrow
 import "base" Control.Monad
@@ -25,16 +32,36 @@ import "this" Language.Haskell.Meta.Syntax.Translate ( toDecs )
 
 --------------------------------------------------------------------------------
 
-render
+-- An animation is a list of images. Each image has a duration
+-- specified in hundreths of a second.
+type Animation shape channels depth = [(Int, CV.Mat shape channels depth)]
+
+--------------------------------------------------------------------------------
+
+renderImage
     :: FilePath
     -> CV.Mat ('CV.S [height, width]) channels depth
     -> IO ()
-render fp img = do
+renderImage fp img = do
     let bs = CV.exceptError $ CV.imencode (CV.OutputPng CV.defaultPngParams) img
-        dest = "doc/generated/" <> fp
     putStr $ "Writing file " <> dest <> " ..."
     B.writeFile dest bs
     putStrLn " OK"
+  where
+    dest = mkDestPath fp
+
+renderAnimation
+    :: FilePath
+    -> Animation ('CV.S [height, width]) channels depth
+    -> IO ()
+renderAnimation fp imgs = do
+    putStr $ "TODO: Write animation to file " <> dest <> " ..."
+    putStrLn " NOT OK :-("
+  where
+    dest = mkDestPath fp
+
+mkDestPath :: FilePath -> FilePath
+mkDestPath fp = "doc/generated/" <> fp
 
 --------------------------------------------------------------------------------
 
@@ -69,6 +96,12 @@ data SymbolType
    | SymImageAction
      deriving (Show, Eq)
 
+data ExampleProps
+   = ExampleProps
+     { exPropIO        :: !Bool
+     , exPropAnimation :: !Bool
+     } deriving Show
+
 data RenderTarget
    = RenderTarget
      { rtDestination :: !FilePath
@@ -76,7 +109,7 @@ data RenderTarget
      , rtSymbolName :: !Name
        -- ^ Name of a top level symbol (function or CAF) that is either an image
        -- or an IO action that yields an image.
-     , rtSymbolIsIO :: !Bool
+     , rtSymbolProps :: !ExampleProps
      } deriving Show
 
 --------------------------------------------------------------------------------
@@ -98,14 +131,17 @@ extractExampleImages srcDir = do
         examplesTH = concatMap (\pexs -> parsedExampleLinePragma pexs : pexsDecls pexs)
                                parsedExampleSrcs
 
-        exampleMap :: M.Map Name Bool
-        exampleMap = M.map typeIsIO $ M.fromList $ mapMaybe asSigD examplesTH
+        exampleTypes :: M.Map Name Type
+        exampleTypes = M.fromList $ mapMaybe asSigD examplesTH
 
         renderTargets' :: [RenderTarget]
-        renderTargets' = do
-            renderTarget <- renderTargets
-            let isIO = M.findWithDefault False (rtSymbolName renderTarget) exampleMap
-            pure renderTarget {rtSymbolIsIO = isIO}
+        renderTargets' =
+            mapMaybe
+              (\rt -> do
+                 exampleType <- M.lookup (rtSymbolName rt) exampleTypes
+                 pure rt {rtSymbolProps = classifyExample exampleType}
+              )
+              renderTargets
 
     unless (null parseErrors) $
       error $ show parseErrors
@@ -134,15 +170,24 @@ asSigD :: Dec -> Maybe (Name, Type)
 asSigD (SigD n t) = Just (n, t)
 asSigD _ = Nothing
 
--- Really hacky way of determining whether some type has IO on a left most
--- position.
-typeIsIO :: Type -> Bool
-typeIsIO (ForallT _ _ t) = typeIsIO t
-typeIsIO (AppT t1 _)     = typeIsIO t1
-typeIsIO (VarT _)        = False
-typeIsIO (ConT n) | nameBase n == nameBase ''IO = True
-typeIsIO (PromotedT _)   = False
-typeIsIO _               = False
+-- Really hacky way of determining the properties of an example based
+-- on its type.
+classifyExample :: Type -> ExampleProps
+classifyExample (ForallT _ _ t) = classifyExample t
+classifyExample (AppT (ConT n) t2) | nameBase n == nameBase ''IO = checkIOAnimation t2
+classifyExample (AppT t1 _)     = classifyExample t1
+classifyExample (VarT _)        = ExampleProps False False
+classifyExample (ConT n) | nameBase n == nameBase ''Animation = ExampleProps False True
+classifyExample (PromotedT _)   = ExampleProps False False
+classifyExample _               = ExampleProps False False
+
+checkIOAnimation :: Type -> ExampleProps
+checkIOAnimation (ForallT _ _ t) = checkIOAnimation t
+checkIOAnimation (AppT t1 _)     = checkIOAnimation t1
+checkIOAnimation (VarT _)        = ExampleProps True False
+checkIOAnimation (ConT n) | nameBase n == nameBase ''Animation = ExampleProps True True
+checkIOAnimation (PromotedT _)   = ExampleProps True False
+checkIOAnimation _               = ExampleProps True False
 
 parseDecsHse :: String -> String -> Either String [Hse.Decl Hse.SrcSpanInfo]
 parseDecsHse fileName str =
@@ -195,13 +240,18 @@ mkRenderExampleImages renderTargets = [d|
     |]
   where
     doRender :: Exp
-    doRender = DoE [ if rtSymbolIsIO rt
-                     then NoBindS $ VarE '(>>=) `AppE` sym `AppE` (VarE 'render `AppE` fp)
-                     else NoBindS $ VarE 'render `AppE` fp `AppE` sym
-                   | rt <- renderTargets
-                   , let sym = VarE $ rtSymbolName rt
-                         fp  = LitE $ StringL $ "examples/" <> rtDestination rt
-                   ]
+    doRender =
+        DoE $ do
+          rt <- renderTargets
+          let sym = VarE $ rtSymbolName rt
+              fp  = LitE $ StringL $ "examples/" <> rtDestination rt
+              props = rtSymbolProps rt
+              render | exPropAnimation props = 'renderAnimation
+                     | otherwise             = 'renderImage
+          pure $ NoBindS $
+            if exPropIO props
+            then VarE '(>>=) `AppE` sym `AppE` (VarE render `AppE` fp)
+            else VarE render `AppE` fp `AppE` sym
 
 findHaskellPaths :: FilePath -> IO [FilePath]
 findHaskellPaths srcDir = do
@@ -236,9 +286,9 @@ parseExamples = findStart
     findStart   (_:[]) = []
     findStart (_:_:[]) = []
     findStart (a:b:c:ls)
-              |    srcLine a == "Example:"
-                && srcLine b == ""
-                && srcLine c == "@"
+              | srcLine a == "Example:"
+              , srcLine b == ""
+              , srcLine c == "@"
                      = findEnd [] ls
     findStart (_:ls) = findStart ls
 
@@ -268,8 +318,8 @@ parseGeneratedImages = concatMap $ parseLine . srcLine
             pure RenderTarget
                  { rtDestination = T.unpack $ fp
                  , rtSymbolName = mkName $ T.unpack $ fromMaybe funcName (T.stripSuffix ">>" funcName)
-                   -- Later on we will check whether the symbol is actually (or likely) IO.
-                 , rtSymbolIsIO = False
+                   -- Later on we will determine the actual properties.
+                 , rtSymbolProps = ExampleProps False False
                  }
         _ -> Nothing
 
