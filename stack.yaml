@@ -1,21 +1,31 @@
-resolver: lts-14.3
+resolver: lts-17.4
 packages:
 - opencv/
-- opencv-examples/
-- opencv-extra/
-- opencv-extra-examples/
-flags: {}
+# - opencv-examples/
+# - opencv-extra/ # macos linker script bug : https://github.com/basvandijk/ghc/commit/b2b92dde16275339293cedaa94d6745e69e904dc
+# https://gitlab.haskell.org/ghc/ghc/-/issues/16130
+# - opencv-extra-examples/
+
+flags:
+  opencv:
+    opencv4: true
+  #opencv-extra:
+  #  opencv4: true
+
 allow-newer: true
 
 extra-lib-dirs:
 - /usr/local/lib
 
 nix:
-  path: [ "nixpkgs=https://github.com/NixOS/nixpkgs/archive/8d1510abfb592339e13ce8f6db6f29c1f8b72924.tar.gz" ]
-  packages: [ zlib pkgconfig opencv3 ]
+  path: [ "nixpkgs=https://github.com/NixOS/nixpkgs/archive/64b4617883844efe0cc20163e007ee636462eb18.tar.gz" ]
+  packages: [ zlib pkgconfig opencv4 ]
 
 # Uncomment if you wish to use Docker integration
 # See README.md for further information.
 #docker:
 #  image: stack-build:lts-10.2-opencv
 #  stack-exe: image
+
+extra-deps:
+- repa-3.4.1.4@sha256:5a99bde69fe96a18d70aae23f47c8f719b1134558dca3ee5a7c15423b68a132e,3323
